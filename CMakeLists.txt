@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.28)
+project(muza)
+file(GLOB_RECURSE SRC "c/source/*.c")
+add_executable(muza ${SRC})
+target_compile_options(muza PRIVATE -std=gnu23 -Wall -Wextra -Wpedantic)
+target_include_directories(muza PRIVATE c/include)
