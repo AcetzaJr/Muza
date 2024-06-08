@@ -39,8 +39,8 @@ def fmt() -> int:
 
 def fmtallc() -> int:
     print("Formatting c files...")
-    fmtc("c/source", ".c")
-    fmtc("c/include", ".h")
+    fmtc("src", ".c")
+    fmtc("inc", ".h")
     return 0
 
 
