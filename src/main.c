@@ -31,7 +31,7 @@ void mzpnc(bool cnd, int code, const char *msg, ...) {
 }
 
 typedef struct {
-  float buffer[MZBUFSIZE];
+  float buffer[MZBLOCKS][MZBUFSIZE];
   const char *mididev;
   const char *pcmdev;
   snd_rawmidi_t *midihnd;
@@ -62,8 +62,9 @@ void *mzpcm(void *) {
   // struct timeval past;
   // struct timeval now;
   // MZSPNC(gettimeofday(&past, NULL) == -1);
-  while (true) {
-    snd_pcm_sframes_t frames = snd_pcm_writei(mzg.pcmhnd, mzg.buffer, MZFRAMES);
+  while (mzworking()) {
+    snd_pcm_sframes_t frames =
+        snd_pcm_writei(mzg.pcmhnd, mzg.buffer[0], MZFRAMES);
     if (frames < 0)
       frames = snd_pcm_recover(mzg.pcmhnd, frames, 0);
     mzpnc(frames < 0, 1, "snd_pcm_writei failed: %s\n", snd_strerror(frames));
@@ -75,9 +76,6 @@ void *mzpcm(void *) {
     //             past.tv_usec;
     // printf("%li us\n", diff);
     // past = now;
-    if (!mzworking()) {
-      break;
-    }
   }
   MZSPNC(snd_pcm_drain(mzg.pcmhnd) < 0);
   return NULL;
@@ -89,7 +87,7 @@ void *mzpcm(void *) {
 void *mzmidi(void *) {
   unsigned char buf[3];
   ssize_t read;
-  while (true) {
+  while (mzworking()) {
     while ((read = snd_rawmidi_read(mzg.midihnd, buf, sizeof(buf))) > 0) {
       printf("> Message read with %li bytes\n", read);
       for (ssize_t i = 0; i < read; i++) {
@@ -98,10 +96,6 @@ void *mzmidi(void *) {
       printf("\n");
     }
     MZSPNC(read != -EAGAIN);
-    MZSPNC(pthread_mutex_lock(&mzg.mtx) != 0);
-    if (!mzworking()) {
-      break;
-    }
     MZSPNC(usleep(1'000) == -1);
   }
   return NULL;
@@ -120,8 +114,10 @@ void mzmidiend() {
 
 void mzinit() {
   pthread_mutex_init(&mzg.mtx, NULL);
-  for (int s = 0; s < MZBUFSIZE; s++) {
-    mzg.buffer[s] = 0;
+  for (int b = 0; b < MZBLOCKS; b++) {
+    for (int s = 0; s < MZBUFSIZE; s++) {
+      mzg.buffer[b][s] = 0;
+    }
   }
 }
 
