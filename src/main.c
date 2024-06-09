@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <time.h>
+#include <unistd.h>
 
 #define MZBLOCKS 3
 #define MZFRATE 48'000
@@ -29,7 +30,7 @@ void mzpnc(bool cnd, int code, const char *msg, ...) {
 }
 
 typedef struct {
-  double buffer[MZBLOCKS][MZBUFSIZE];
+  float buffer[MZBUFSIZE];
   const char *mididev;
   const char *pcmdev;
   snd_rawmidi_t *midihnd;
@@ -57,21 +58,15 @@ bool mzworking() {
 }
 
 void *mzpcm(void *) {
-  ssize_t bufsize = sizeof(mzg.buffer[0]);
+  ssize_t bufsize = sizeof(mzg.buffer);
+  printf("bufsize %li\n", bufsize);
   while (true) {
-    snd_pcm_sframes_t frames =
-        snd_pcm_writei(mzg.pcmhnd, mzg.buffer[0], bufsize);
-    if (frames < 0)
-      frames = snd_pcm_recover(mzg.pcmhnd, frames, 0);
-    if (frames < 0) {
-      mzpnc(true, 1, "snd_pcm_writei failed: %s\n", snd_strerror(frames));
-    }
-    if (frames > 0 && frames < bufsize)
-      printf("Short write (expected %li, wrote %li)\n", bufsize, frames);
+    MZSPNC(snd_pcm_writei(mzg.pcmhnd, mzg.buffer, bufsize) < 0);
     if (!mzworking()) {
       break;
     }
   }
+  printf("exit\n");
   MZSPNC(snd_pcm_drain(mzg.pcmhnd) < 0);
   return NULL;
 }
@@ -116,10 +111,8 @@ void mzmidiend() {
 
 void mzinit() {
   pthread_mutex_init(&mzg.mtx, NULL);
-  for (int b = 0; b < MZBLOCKS; b++) {
-    for (int s = 0; s < MZBUFSIZE; s++) {
-      mzg.buffer[b][s] = 0;
-    }
+  for (int s = 0; s < MZBUFSIZE; s++) {
+    mzg.buffer[s] = 0;
   }
 }
 
