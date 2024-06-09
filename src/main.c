@@ -5,6 +5,10 @@
 #include <stdio.h>
 #include <time.h>
 
+const char *mzspncstr = "%s:%d In function '%s'";
+
+#define MZSPNC(ARG) mzpnc(ARG, 1, mzspncstr, __FILE__, __LINE__, __func__)
+
 void mzpnc(bool cnd, int code, const char *msg, ...) {
   if (!cnd) {
     return;
@@ -42,34 +46,33 @@ void *mzmidi(void *) {
       }
       printf("\n");
     }
-    mzpnc(read != -EAGAIN, 1, "snd_rawmidi_read");
-    mzpnc(pthread_mutex_lock(&mzg.mtx) != 0, 1, "pthread_mutex_lock");
+    MZSPNC(read != -EAGAIN);
+    MZSPNC(pthread_mutex_lock(&mzg.mtx) != 0);
     if (!mzg.work) {
-      mzpnc(pthread_mutex_unlock(&mzg.mtx) != 0, 1, "pthread_mutex_unlock");
+      MZSPNC(pthread_mutex_unlock(&mzg.mtx) != 0);
       break;
     }
-    mzpnc(pthread_mutex_unlock(&mzg.mtx) != 0, 1, "pthread_mutex_unlock");
-    mzpnc(nanosleep(&time, NULL) == -1, 1, "nanosleep");
+    MZSPNC(pthread_mutex_unlock(&mzg.mtx) != 0);
+    MZSPNC(nanosleep(&time, NULL) == -1);
   }
   return NULL;
 }
 
 int main(void) {
+  MZSPNC(true);
   pthread_mutex_init(&mzg.mtx, NULL);
-  mzpnc(snd_rawmidi_open(&mzg.hnd, NULL, mzg.dev, 0) < 0, 1,
-        "snd_rawmidi_open");
-  mzpnc(snd_rawmidi_nonblock(mzg.hnd, 1) < 0, 1, "snd_rawmidi_nonblock");
+  MZSPNC(snd_rawmidi_open(&mzg.hnd, NULL, mzg.dev, 0) < 0);
+  MZSPNC(snd_rawmidi_nonblock(mzg.hnd, 1) < 0);
   pthread_t midithrd;
-  mzpnc(pthread_create(&midithrd, NULL, mzmidi, NULL) != 0, 1,
-        "pthread_create");
+  MZSPNC(pthread_create(&midithrd, NULL, mzmidi, NULL) != 0);
   struct timespec time;
   time.tv_sec = 3;
   time.tv_nsec = 0;
-  mzpnc(nanosleep(&time, NULL) == -1, 1, "nanosleep");
-  mzpnc(pthread_mutex_lock(&mzg.mtx) != 0, 1, "pthread_mutex_lock");
+  MZSPNC(nanosleep(&time, NULL) == -1);
+  MZSPNC(pthread_mutex_lock(&mzg.mtx) != 0);
   mzg.work = false;
-  mzpnc(pthread_mutex_unlock(&mzg.mtx) != 0, 1, "pthread_mutex_unlock");
-  mzpnc(pthread_join(midithrd, NULL) != 0, 1, "pthread_join");
-  mzpnc(snd_rawmidi_close(mzg.hnd) < 0, 1, "snd_rawmidi_close");
+  MZSPNC(pthread_mutex_unlock(&mzg.mtx) != 0);
+  MZSPNC(pthread_join(midithrd, NULL) != 0);
+  MZSPNC(snd_rawmidi_close(mzg.hnd) < 0);
   return 0;
 }

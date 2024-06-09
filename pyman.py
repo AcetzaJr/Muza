@@ -41,6 +41,7 @@ def fmtc() -> int:
 def build() -> int:
     if need_some_arguments(2):
         return 1
+    fmtc_()
     config = sys.argv[2]
     code = init_(config=config)
     if code != 0:
@@ -51,6 +52,7 @@ def build() -> int:
 def run() -> int:
     if need_some_arguments(2):
         return 1
+    fmtc_()
     config = sys.argv[2]
     code = init_(config=config)
     if code != 0:
@@ -73,6 +75,7 @@ def rebuild() -> int:
     print("> build cleaned")
     if need_some_arguments(2):
         return 1
+    fmtc_()
     config = sys.argv[2]
     code = init_(config=config)
     if code != 0:
