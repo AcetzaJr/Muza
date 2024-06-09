@@ -32,7 +32,15 @@ void mzpnc(bool cnd, int code, const char *msg, ...) {
 }
 
 typedef struct {
-  float buffer[MZBLOCKS][MZBUFSIZE];
+  float buffer[MZBUFSIZE];
+  bool ready;
+} mzblock_t;
+
+typedef struct {
+  mzblock_t blocks[MZBLOCKS];
+  int current;
+  int first;
+  int last;
   const char *mididev;
   const char *pcmdev;
   snd_rawmidi_t *midihnd;
@@ -59,10 +67,25 @@ bool mzworking() {
   return working;
 }
 
+bool mzswap() {
+  if (!mzg.blocks[mzg.last].ready) {
+    return false;
+  }
+  mzg.blocks[mzg.current].ready = false;
+  mzg.current = (mzg.current + 1) % MZBLOCKS;
+  mzg.last = (mzg.last + 1) % MZBLOCKS;
+  mzg.first = (mzg.first + 1) % MZBLOCKS;
+  return true;
+}
+
+float *mznext() {
+  MZSPNC(!mzswap());
+  return mzg.blocks[mzg.current].buffer;
+}
+
 void *mzpcm(void *) {
   while (mzworking()) {
-    snd_pcm_sframes_t frames =
-        snd_pcm_writei(mzg.pcmhnd, mzg.buffer[0], MZFRAMES);
+    snd_pcm_sframes_t frames = snd_pcm_writei(mzg.pcmhnd, mznext(), MZFRAMES);
     if (frames < 0)
       frames = snd_pcm_recover(mzg.pcmhnd, frames, 0);
     mzpnc(frames < 0, 1, "snd_pcm_writei failed: %s\n", snd_strerror(frames));
@@ -105,7 +128,7 @@ void mzinit() {
   pthread_mutex_init(&mzg.mtx, NULL);
   for (int b = 0; b < MZBLOCKS; b++) {
     for (int s = 0; s < MZBUFSIZE; s++) {
-      mzg.buffer[b][s] = 0;
+      mzg.blocks[b].buffer[s] = 0;
     }
   }
 }
