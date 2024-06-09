@@ -85,6 +85,7 @@ float *mznext() {
 
 void *mzpcm(void *) {
   while (mzworking()) {
+    printf("pcm\n");
     snd_pcm_sframes_t frames = snd_pcm_writei(mzg.pcmhnd, mznext(), MZFRAMES);
     if (frames < 0)
       frames = snd_pcm_recover(mzg.pcmhnd, frames, 0);
@@ -130,6 +131,7 @@ void mzinit() {
     for (int s = 0; s < MZBUFSIZE; s++) {
       mzg.blocks[b].buffer[s] = 0;
     }
+    mzg.blocks[b].ready = true;
   }
 }
 
