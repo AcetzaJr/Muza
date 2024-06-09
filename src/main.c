@@ -9,8 +9,9 @@
 #define MZBLOCKS 3
 #define MZFRATE 48'000
 #define MZCHAN 2
-#define MZLATENCY 25'000
-#define MZFRAMES ((MZFRATE) / 1'000) * ((MZLATENCY) / 1'000)
+#define MZLATENCYMILLI 25
+#define MZLATENCY (MZLATENCYMILLI) * 1'000
+#define MZFRAMES ((MZFRATE) / 1'000) * (MZLATENCYMILLI)
 #define MZBUFSIZE (MZCHAN) * (MZFRAMES)
 #define MZSPNC(ARG) mzpnc(ARG, 1, mzspncstr, __FILE__, __LINE__, __func__)
 
@@ -59,9 +60,6 @@ bool mzworking() {
 }
 
 void *mzpcm(void *) {
-  // struct timeval past;
-  // struct timeval now;
-  // MZSPNC(gettimeofday(&past, NULL) == -1);
   while (mzworking()) {
     snd_pcm_sframes_t frames =
         snd_pcm_writei(mzg.pcmhnd, mzg.buffer[0], MZFRAMES);
@@ -70,19 +68,10 @@ void *mzpcm(void *) {
     mzpnc(frames < 0, 1, "snd_pcm_writei failed: %s\n", snd_strerror(frames));
     mzpnc(frames != MZFRAMES, 1, "wrong write (expected %i, wrote %li)\n",
           MZFRAMES, frames);
-    // MZSPNC(gettimeofday(&now, NULL) == -1);
-    // long diff = now.tv_sec * 1'000'000 + now.tv_usec - past.tv_sec *
-    // 1'000'000 -
-    //             past.tv_usec;
-    // printf("%li us\n", diff);
-    // past = now;
   }
   MZSPNC(snd_pcm_drain(mzg.pcmhnd) < 0);
   return NULL;
 }
-
-// 48'000 - 1'000'000
-// x - 25'000
 
 void *mzmidi(void *) {
   unsigned char buf[3];
