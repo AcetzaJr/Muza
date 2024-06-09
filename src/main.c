@@ -5,9 +5,14 @@
 #include <stdio.h>
 #include <time.h>
 
-const char *mzspncstr = "%s:%d In function '%s'";
-
+#define MZBLOCKS 3
+#define MZFRATE 48'000
+#define MZCHAN 2
+#define MZLATENCY 25'000
+#define MZBUFSIZE (MZCHAN) * ((MZFRATE) / 1'000) * ((MZLATENCY) / 1'000)
 #define MZSPNC(ARG) mzpnc(ARG, 1, mzspncstr, __FILE__, __LINE__, __func__)
+
+const char *mzspncstr = "%s:%d In function '%s'";
 
 void mzpnc(bool cnd, int code, const char *msg, ...) {
   if (!cnd) {
@@ -24,10 +29,11 @@ void mzpnc(bool cnd, int code, const char *msg, ...) {
 }
 
 typedef struct {
-  const char *midi_dev;
-  const char *pcm_dev;
-  snd_rawmidi_t *midi_hnd;
-  snd_pcm_t *pcm_hnd;
+  double buffer[MZBLOCKS][MZBUFSIZE];
+  const char *mididev;
+  const char *pcmdev;
+  snd_rawmidi_t *midihnd;
+  snd_pcm_t *pcmhnd;
   pthread_mutex_t mtx;
   pthread_t midithrd;
   pthread_t pcmthrd;
@@ -36,13 +42,42 @@ typedef struct {
   bool work;
 } mzg_t;
 
-mzg_t mzg = {.pcm_dev = "default",
-             .midi_dev = "hw:CARD=USBMIDI",
+mzg_t mzg = {.pcmdev = "default",
+             .mididev = "hw:CARD=USBMIDI",
              .work = true,
              .channels = 2,
-             .frate = 48'000};
+             .frate = MZFRATE};
 
-void *mzpcm(void *) { MZSPNC(snd_pcm_drain(msg.pcm_hnd) < 0); }
+bool mzworking() {
+  bool working;
+  MZSPNC(pthread_mutex_lock(&mzg.mtx) != 0);
+  working = mzg.work;
+  MZSPNC(pthread_mutex_unlock(&mzg.mtx) != 0);
+  return working;
+}
+
+void *mzpcm(void *) {
+  ssize_t bufsize = sizeof(mzg.buffer[0]);
+  while (true) {
+    snd_pcm_sframes_t frames =
+        snd_pcm_writei(mzg.pcmhnd, mzg.buffer[0], bufsize);
+    if (frames < 0)
+      frames = snd_pcm_recover(mzg.pcmhnd, frames, 0);
+    if (frames < 0) {
+      mzpnc(true, 1, "snd_pcm_writei failed: %s\n", snd_strerror(frames));
+    }
+    if (frames > 0 && frames < bufsize)
+      printf("Short write (expected %li, wrote %li)\n", bufsize, frames);
+    if (!mzworking()) {
+      break;
+    }
+  }
+  MZSPNC(snd_pcm_drain(mzg.pcmhnd) < 0);
+  return NULL;
+}
+
+// 48'000 - 1'000'000
+// x - 25'000
 
 void *mzmidi(void *) {
   struct timespec time;
@@ -51,7 +86,7 @@ void *mzmidi(void *) {
   unsigned char buf[3];
   ssize_t read;
   while (true) {
-    while ((read = snd_rawmidi_read(mzg.midi_hnd, buf, sizeof(buf))) > 0) {
+    while ((read = snd_rawmidi_read(mzg.midihnd, buf, sizeof(buf))) > 0) {
       printf("> Message read with %li bytes\n", read);
       for (ssize_t i = 0; i < read; i++) {
         printf("[%02x]", buf[i]);
@@ -60,36 +95,45 @@ void *mzmidi(void *) {
     }
     MZSPNC(read != -EAGAIN);
     MZSPNC(pthread_mutex_lock(&mzg.mtx) != 0);
-    if (!mzg.work) {
-      MZSPNC(pthread_mutex_unlock(&mzg.mtx) != 0);
+    if (!mzworking()) {
       break;
     }
-    MZSPNC(pthread_mutex_unlock(&mzg.mtx) != 0);
     MZSPNC(nanosleep(&time, NULL) == -1);
   }
   return NULL;
 }
 
 void mzmidiinit() {
-  MZSPNC(snd_rawmidi_open(&mzg.midi_hnd, NULL, mzg.midi_dev, 0) < 0);
-  MZSPNC(snd_rawmidi_nonblock(mzg.midi_hnd, 1) < 0);
+  MZSPNC(snd_rawmidi_open(&mzg.midihnd, NULL, mzg.mididev, 0) < 0);
+  MZSPNC(snd_rawmidi_nonblock(mzg.midihnd, 1) < 0);
   MZSPNC(pthread_create(&mzg.midithrd, NULL, mzmidi, NULL) != 0);
 }
 
 void mzmidiend() {
   MZSPNC(pthread_join(mzg.midithrd, NULL) != 0);
-  MZSPNC(snd_rawmidi_close(mzg.midi_hnd) < 0);
+  MZSPNC(snd_rawmidi_close(mzg.midihnd) < 0);
 }
 
-void mzinit() { pthread_mutex_init(&mzg.mtx, NULL); }
+void mzinit() {
+  pthread_mutex_init(&mzg.mtx, NULL);
+  for (int b = 0; b < MZBLOCKS; b++) {
+    for (int s = 0; s < MZBUFSIZE; s++) {
+      mzg.buffer[b][s] = 0;
+    }
+  }
+}
 
 void mzpcminit() {
-  MZSPNC(snd_pcm_open(&mzg.pcm_hnd, mzg.pcm_dev, SND_PCM_STREAM_PLAYBACK, 0) <
-         0);
-  MZSPNC(snd_pcm_set_params(mzg.pcm_hnd, SND_PCM_FORMAT_FLOAT64,
+  MZSPNC(snd_pcm_open(&mzg.pcmhnd, mzg.pcmdev, SND_PCM_STREAM_PLAYBACK, 0) < 0);
+  MZSPNC(snd_pcm_set_params(mzg.pcmhnd, SND_PCM_FORMAT_FLOAT,
                             SND_PCM_ACCESS_RW_INTERLEAVED, mzg.channels,
                             mzg.frate, 1, 25'000) < 0);
   MZSPNC(pthread_create(&mzg.pcmthrd, NULL, mzpcm, NULL) != 0);
+}
+
+void mzpcmend() {
+  MZSPNC(pthread_join(mzg.pcmthrd, NULL) != 0);
+  MZSPNC(snd_pcm_close(mzg.pcmhnd) < 0);
 }
 
 void mzwaitenter() {
@@ -103,6 +147,8 @@ void mzwaitenter() {
 
 int main(void) {
   mzinit();
+  mzpcminit();
   mzwaitenter();
+  mzpcmend();
   return 0;
 }
