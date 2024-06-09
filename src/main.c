@@ -10,7 +10,8 @@
 #define MZFRATE 48'000
 #define MZCHAN 2
 #define MZLATENCY 25'000
-#define MZBUFSIZE (MZCHAN) * ((MZFRATE) / 1'000) * ((MZLATENCY) / 1'000)
+#define MZFRAMES ((MZFRATE) / 1'000) * ((MZLATENCY) / 1'000)
+#define MZBUFSIZE (MZCHAN) * (MZFRAMES)
 #define MZSPNC(ARG) mzpnc(ARG, 1, mzspncstr, __FILE__, __LINE__, __func__)
 
 const char *mzspncstr = "%s:%d In function '%s'";
@@ -46,7 +47,7 @@ typedef struct {
 mzg_t mzg = {.pcmdev = "default",
              .mididev = "hw:CARD=USBMIDI",
              .work = true,
-             .channels = 2,
+             .channels = MZCHAN,
              .frate = MZFRATE};
 
 bool mzworking() {
@@ -58,10 +59,14 @@ bool mzworking() {
 }
 
 void *mzpcm(void *) {
-  ssize_t bufsize = sizeof(mzg.buffer);
-  printf("bufsize %li\n", bufsize);
+  printf("bufsize %i\n", MZBUFSIZE);
   while (true) {
-    MZSPNC(snd_pcm_writei(mzg.pcmhnd, mzg.buffer, bufsize) < 0);
+    snd_pcm_sframes_t frames = snd_pcm_writei(mzg.pcmhnd, mzg.buffer, MZFRAMES);
+    if (frames < 0)
+      frames = snd_pcm_recover(mzg.pcmhnd, frames, 0);
+    mzpnc(frames < 0, 1, "snd_pcm_writei failed: %s\n", snd_strerror(frames));
+    if (frames > 0 && frames < MZFRAMES)
+      printf("Short write (expected %i, wrote %li)\n", MZFRAMES, frames);
     if (!mzworking()) {
       break;
     }
