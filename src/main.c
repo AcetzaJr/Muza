@@ -59,21 +59,22 @@ bool mzworking() {
 }
 
 void *mzpcm(void *) {
-  struct timeval past;
-  struct timeval now;
-  MZSPNC(gettimeofday(&past, NULL) == -1);
+  // struct timeval past;
+  // struct timeval now;
+  // MZSPNC(gettimeofday(&past, NULL) == -1);
   while (true) {
     snd_pcm_sframes_t frames = snd_pcm_writei(mzg.pcmhnd, mzg.buffer, MZFRAMES);
     if (frames < 0)
       frames = snd_pcm_recover(mzg.pcmhnd, frames, 0);
     mzpnc(frames < 0, 1, "snd_pcm_writei failed: %s\n", snd_strerror(frames));
-    if (frames > 0 && frames < MZFRAMES)
-      printf("Short write (expected %i, wrote %li)\n", MZFRAMES, frames);
-    MZSPNC(gettimeofday(&now, NULL) == -1);
-    long diff = now.tv_sec * 1'000'000 + now.tv_usec - past.tv_sec * 1'000'000 -
-                past.tv_usec;
-    printf("[%li]\n", diff);
-    past = now;
+    mzpnc(frames != MZFRAMES, 1, "wrong write (expected %i, wrote %li)\n",
+          MZFRAMES, frames);
+    // MZSPNC(gettimeofday(&now, NULL) == -1);
+    // long diff = now.tv_sec * 1'000'000 + now.tv_usec - past.tv_sec *
+    // 1'000'000 -
+    //             past.tv_usec;
+    // printf("%li us\n", diff);
+    // past = now;
     if (!mzworking()) {
       break;
     }
