@@ -24,13 +24,25 @@ void mzpnc(bool cnd, int code, const char *msg, ...) {
 }
 
 typedef struct {
-  const char *dev;
-  snd_rawmidi_t *hnd;
+  const char *midi_dev;
+  const char *pcm_dev;
+  snd_rawmidi_t *midi_hnd;
+  snd_pcm_t *pcm_hnd;
   pthread_mutex_t mtx;
+  pthread_t midithrd;
+  pthread_t pcmthrd;
+  int channels;
+  int frate;
   bool work;
-} mzglobal_t;
+} mzg_t;
 
-mzglobal_t mzg = {.dev = "hw:CARD=USBMIDI", .work = true};
+mzg_t mzg = {.pcm_dev = "default",
+             .midi_dev = "hw:CARD=USBMIDI",
+             .work = true,
+             .channels = 2,
+             .frate = 48'000};
+
+void *mzpcm(void *) { MZSPNC(snd_pcm_drain(msg.pcm_hnd) < 0); }
 
 void *mzmidi(void *) {
   struct timespec time;
@@ -39,7 +51,7 @@ void *mzmidi(void *) {
   unsigned char buf[3];
   ssize_t read;
   while (true) {
-    while ((read = snd_rawmidi_read(mzg.hnd, buf, sizeof(buf))) > 0) {
+    while ((read = snd_rawmidi_read(mzg.midi_hnd, buf, sizeof(buf))) > 0) {
       printf("> Message read with %li bytes\n", read);
       for (ssize_t i = 0; i < read; i++) {
         printf("[%02x]", buf[i]);
@@ -58,21 +70,39 @@ void *mzmidi(void *) {
   return NULL;
 }
 
-int main(void) {
-  MZSPNC(true);
-  pthread_mutex_init(&mzg.mtx, NULL);
-  MZSPNC(snd_rawmidi_open(&mzg.hnd, NULL, mzg.dev, 0) < 0);
-  MZSPNC(snd_rawmidi_nonblock(mzg.hnd, 1) < 0);
-  pthread_t midithrd;
-  MZSPNC(pthread_create(&midithrd, NULL, mzmidi, NULL) != 0);
-  struct timespec time;
-  time.tv_sec = 3;
-  time.tv_nsec = 0;
-  MZSPNC(nanosleep(&time, NULL) == -1);
+void mzmidiinit() {
+  MZSPNC(snd_rawmidi_open(&mzg.midi_hnd, NULL, mzg.midi_dev, 0) < 0);
+  MZSPNC(snd_rawmidi_nonblock(mzg.midi_hnd, 1) < 0);
+  MZSPNC(pthread_create(&mzg.midithrd, NULL, mzmidi, NULL) != 0);
+}
+
+void mzmidiend() {
+  MZSPNC(pthread_join(mzg.midithrd, NULL) != 0);
+  MZSPNC(snd_rawmidi_close(mzg.midi_hnd) < 0);
+}
+
+void mzinit() { pthread_mutex_init(&mzg.mtx, NULL); }
+
+void mzpcminit() {
+  MZSPNC(snd_pcm_open(&mzg.pcm_hnd, mzg.pcm_dev, SND_PCM_STREAM_PLAYBACK, 0) <
+         0);
+  MZSPNC(snd_pcm_set_params(mzg.pcm_hnd, SND_PCM_FORMAT_FLOAT64,
+                            SND_PCM_ACCESS_RW_INTERLEAVED, mzg.channels,
+                            mzg.frate, 1, 25'000) < 0);
+  MZSPNC(pthread_create(&mzg.pcmthrd, NULL, mzpcm, NULL) != 0);
+}
+
+void mzwaitenter() {
+  printf("> Press enter to exit\n");
+  while (getchar() != '\n') {
+  }
   MZSPNC(pthread_mutex_lock(&mzg.mtx) != 0);
   mzg.work = false;
   MZSPNC(pthread_mutex_unlock(&mzg.mtx) != 0);
-  MZSPNC(pthread_join(midithrd, NULL) != 0);
-  MZSPNC(snd_rawmidi_close(mzg.hnd) < 0);
+}
+
+int main(void) {
+  mzinit();
+  mzwaitenter();
   return 0;
 }
