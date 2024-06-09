@@ -3,7 +3,7 @@
 #include <pthread.h>
 #include <stddef.h>
 #include <stdio.h>
-#include <time.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #define MZBLOCKS 3
@@ -59,7 +59,9 @@ bool mzworking() {
 }
 
 void *mzpcm(void *) {
-  printf("bufsize %i\n", MZBUFSIZE);
+  struct timeval past;
+  struct timeval now;
+  MZSPNC(gettimeofday(&past, NULL) == -1);
   while (true) {
     snd_pcm_sframes_t frames = snd_pcm_writei(mzg.pcmhnd, mzg.buffer, MZFRAMES);
     if (frames < 0)
@@ -67,11 +69,15 @@ void *mzpcm(void *) {
     mzpnc(frames < 0, 1, "snd_pcm_writei failed: %s\n", snd_strerror(frames));
     if (frames > 0 && frames < MZFRAMES)
       printf("Short write (expected %i, wrote %li)\n", MZFRAMES, frames);
+    MZSPNC(gettimeofday(&now, NULL) == -1);
+    long diff = now.tv_sec * 1'000'000 + now.tv_usec - past.tv_sec * 1'000'000 -
+                past.tv_usec;
+    printf("[%li]\n", diff);
+    past = now;
     if (!mzworking()) {
       break;
     }
   }
-  printf("exit\n");
   MZSPNC(snd_pcm_drain(mzg.pcmhnd) < 0);
   return NULL;
 }
@@ -80,9 +86,6 @@ void *mzpcm(void *) {
 // x - 25'000
 
 void *mzmidi(void *) {
-  struct timespec time;
-  time.tv_sec = 0;
-  time.tv_nsec = 1'000'000;
   unsigned char buf[3];
   ssize_t read;
   while (true) {
@@ -98,7 +101,7 @@ void *mzmidi(void *) {
     if (!mzworking()) {
       break;
     }
-    MZSPNC(nanosleep(&time, NULL) == -1);
+    MZSPNC(usleep(1'000) == -1);
   }
   return NULL;
 }
