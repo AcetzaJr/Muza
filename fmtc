@@ -1,0 +1,2 @@
+#!/bin/fish
+py pyman.py fmtc
